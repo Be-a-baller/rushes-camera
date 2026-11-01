@@ -58,11 +58,14 @@ export async function listLenses(): Promise<Lens[]> {
   return lenses.sort((a, b) => a.order - b.order)
 }
 
+const HEVC = ['video/mp4;codecs="hvc1.1.6.L153.B0,mp4a.40.2"', 'video/mp4;codecs=hvc1', 'video/mp4;codecs=hevc']
+const H264 = ['video/mp4;codecs="avc1.640033,mp4a.40.2"', 'video/mp4;codecs=avc1', 'video/mp4']
+const WEBM = ['video/webm;codecs=vp9,opus', 'video/webm']
+export const MIME_CANDIDATES = [...HEVC, ...H264, ...WEBM]
+
 export function pickMime(codec: Codec): string {
   if (typeof MediaRecorder === 'undefined') throw new Error('このブラウザは録画に対応していません')
-  const hevc = ['video/mp4;codecs="hvc1.1.6.L153.B0,mp4a.40.2"', 'video/mp4;codecs=hvc1', 'video/mp4;codecs=hevc']
-  const h264 = ['video/mp4;codecs="avc1.640033,mp4a.40.2"', 'video/mp4;codecs=avc1', 'video/mp4']
-  const list = [...(codec === 'hevc' ? [...hevc, ...h264] : [...h264, ...hevc]), 'video/webm;codecs=vp9,opus', 'video/webm']
+  const list = [...(codec === 'hevc' ? [...HEVC, ...H264] : [...H264, ...HEVC]), ...WEBM]
   const mime = list.find((m) => MediaRecorder.isTypeSupported(m))
   if (!mime) throw new Error('録画できる形式が見つかりませんでした')
   return mime

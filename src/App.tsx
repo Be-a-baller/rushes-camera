@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Clapperboard, Grid3x3, Settings2, SlidersHorizontal, Upload } from 'lucide-react'
 import { AudioMeter, Histogram } from './components/Scopes'
+import { Benchmark } from './components/Benchmark'
 import { ClipList } from './components/Clips'
 import { Guides, type GuideAspect } from './components/Guides'
 import { Segmented, Sheet, Toggle } from './components/ui'
@@ -9,6 +10,7 @@ import {
   applyControl, bitrate, codecName, listLenses, openStream, pickMime, readControls, setAuto, setTorch,
   type CameraSettings, type Lens, type RangeControl,
 } from './lib/camera'
+import { runBenchmark, type BenchMode, type BenchReport } from './lib/benchmark'
 import { BUILTIN_LUTS, parseCube, type Lut } from './lib/lut'
 import { Monitor } from './lib/monitor'
 import { appendChunk, listClips, putClip, recoverInterrupted, storageLeft, type Clip } from './lib/store'
@@ -68,7 +70,7 @@ export default function App() {
   const [reported, setReported] = useState<string[]>([])
   const [dims, setDims] = useState({ w: 16, h: 9 })
   const [box, setBox] = useState({ w: 0, h: 0 })
-  const [sheet, setSheet] = useState<'none' | 'settings' | 'controls' | 'clips'>('none')
+  const [sheet, setSheet] = useState<'none' | 'settings' | 'controls' | 'clips' | 'bench'>('none')
   const [recording, setRecording] = useState(false)
   const [clips, setClips] = useState<Clip[]>([])
   const [left, setLeft] = useState<number | null>(null)
@@ -79,6 +81,9 @@ export default function App() {
   const [peaking, setPeaking] = useState(false)
   const [lut, setLut] = useState<Lut | null>(null)
   const [customLuts, setCustomLuts] = useState<Lut[]>([])
+  const [benchRunning, setBenchRunning] = useState(false)
+  const [benchProgress, setBenchProgress] = useState('')
+  const [benchReport, setBenchReport] = useState<BenchReport | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
@@ -353,6 +358,22 @@ export default function App() {
     return () => cancelAnimationFrame(raf)
   }, [recording, saved.fps])
 
+  const runBench = async (mode: BenchMode) => {
+    if (!videoRef.current || benchRunning) return
+    setBenchRunning(true)
+    setBenchReport(null)
+    try {
+      setBenchReport(await runBenchmark({
+        mode, video: videoRef.current, getStream: () => streamRef.current, acquire, base: saved, onProgress: setBenchProgress,
+      }))
+    } catch (e) {
+      say(`テストを完了できませんでした: ${(e as Error).message}`)
+    }
+    await acquire(saved).catch(() => say('カメラを再開できませんでした'))
+    await refreshClips()
+    setBenchRunning(false)
+  }
+
   const importLut = async (file: File) => {
     try {
       const parsed = parseCube(await file.text(), file.name.replace(/\.cube$/i, ''))
@@ -522,7 +543,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22 }}
-            className="fixed inset-x-4 top-[calc(env(safe-area-inset-top)+40px)] z-30 mx-auto max-w-md rounded-lg bg-raised px-3 py-2 text-center text-[14px]"
+            className="fixed inset-x-4 top-[calc(env(safe-area-inset-top)+40px)] z-[60] mx-auto max-w-md rounded-lg bg-raised px-3 py-2 text-center text-[14px]"
           >
             {toast}
           </motion.p>
@@ -577,6 +598,10 @@ export default function App() {
         <p className="font-mono text-[12px] leading-relaxed break-words text-dim">
           ブラウザが報告した機能: {reported.join(', ') || 'なし'}
         </p>
+      </Sheet>
+
+      <Sheet open={sheet === 'bench'} title="性能テスト" onClose={() => !benchRunning && setSheet('none')}>
+        <Benchmark running={benchRunning} progress={benchProgress} report={benchReport} onRun={(m) => void runBench(m)} onMessage={say} />
       </Sheet>
 
       <Sheet open={sheet === 'settings'} title="設定" onClose={() => setSheet('none')}>
@@ -657,6 +682,9 @@ export default function App() {
             ))}
           </div>
         </div>
+        <button disabled={recording} onClick={() => setSheet('bench')} className="h-12 rounded-lg bg-raised text-[15px] disabled:opacity-40">
+          この iPhone の性能をテスト
+        </button>
       </Sheet>
     </main>
   )
